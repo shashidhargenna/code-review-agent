@@ -1,0 +1,14 @@
+langgraph
+langgraph-checkpoint-sqlite
+langchain
+langchain-openai
+langchain-core
+fastapi
+uvicorn[standard]
+httpx
+python-dotenv
+pydantic
+flake8
+black
+pytest
+pytest-asyncio
