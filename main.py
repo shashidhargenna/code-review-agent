@@ -1,8 +1,8 @@
-def add_numbers(first_number, second_number):
-    """Return the sum of first_number and second_number."""
-    return first_number + second_number
+def add_numbers(num1, num2):
+    """Return the sum of num1 and num2."""
+    return num1 + num2
 
 
-def multiply_numbers(first_number, second_number):
-    """Return the product of first_number and second_number."""
-    return first_number * second_number
+def multiply_numbers(num1, num2):
+    """Return the product of num1 and num2."""
+    return num1 * num2
