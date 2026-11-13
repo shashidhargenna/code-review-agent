@@ -1,6 +1,8 @@
 import os
 import re
 import httpx
+import base64
+from urllib.parse import quote
 from dotenv import load_dotenv
 from langchain_openai import ChatOpenAI
 from langchain_core.messages import SystemMessage, HumanMessage
@@ -11,28 +13,108 @@ from langgraph.types import interrupt
 load_dotenv()
 
 def fetch_pr_node(state: ReviewState):
-
     """
-    Fetches modified files from a GitHub Pull Request.
-    Currently using mock data for development.
+    Fetches actual modified Python files from a GitHub Pull Request.
     """
 
     print("Fetching Pull Request...")
 
-    # Mock GitHub PR code
-    mock_code = {
-        "main.py": """
-def add(a,b):
- return a+b
+    token = os.getenv("GITHUB_TOKEN")
 
+    if not token:
+        raise ValueError("GitHub token is missing.")
 
-def multiply(a,b):
-    return a*b
-"""
+    pr_url = state["pr_url"]
+
+    match = re.fullmatch(
+        r"https://github\.com/([^/]+)/([^/]+)/pull/(\d+)/?",
+        pr_url
+    )
+
+    if not match:
+        raise ValueError("Invalid GitHub Pull Request URL.")
+
+    owner, repo, pr_number = match.groups()
+
+    headers = {
+        "Authorization": f"Bearer {token}",
+        "Accept": "application/vnd.github+json",
+        "X-GitHub-Api-Version": "2022-11-28"
     }
 
+    code_contents = {}
+
+    with httpx.Client(headers=headers, timeout=30) as client:
+
+        # Step 1: Retrieve Pull Request information
+        pr_response = client.get(
+            f"https://api.github.com/repos/{owner}/{repo}/pulls/{pr_number}"
+        )
+
+        pr_response.raise_for_status()
+
+        pr_data = pr_response.json()
+
+        head = pr_data["head"]
+        head_sha = head["sha"]
+        head_repo = head["repo"]
+
+        if head_repo is None:
+            raise ValueError("PR source repository is unavailable.")
+
+        source_owner = head_repo["owner"]["login"]
+        source_repo = head_repo["name"]
+
+        # Step 2: Retrieve the list of changed files
+        files_response = client.get(
+            f"https://api.github.com/repos/{owner}/{repo}/pulls/{pr_number}/files"
+        )
+
+        files_response.raise_for_status()
+
+        changed_files = files_response.json()
+
+        # Step 3: Retrieve the actual contents of each changed file
+        for file in changed_files:
+
+            filename = file["filename"]
+
+            # Skip deleted files and non-Python files
+            if file["status"] == "removed":
+                continue
+
+            if not filename.endswith(".py"):
+                continue
+
+            encoded_path = quote(filename, safe="/")
+
+            content_response = client.get(
+                f"https://api.github.com/repos/{source_owner}/{source_repo}/contents/{encoded_path}",
+                params={"ref": head_sha}
+            )
+
+            content_response.raise_for_status()
+
+            content_data = content_response.json()
+
+            if content_data.get("encoding") != "base64":
+                raise ValueError(
+                    f"Unsupported content encoding for {filename}"
+                )
+
+            decoded_content = base64.b64decode(
+                content_data["content"]
+            ).decode("utf-8")
+
+            code_contents[filename] = decoded_content
+
+    if not code_contents:
+        raise ValueError("No Python files found in the Pull Request.")
+
+    print("Successfully fetched files:", list(code_contents.keys()))
+
     return {
-        "code_contents": mock_code
+        "code_contents": code_contents
     }
     
 def lint_code_node(state: ReviewState):
@@ -308,5 +390,6 @@ def human_approval_node(state: ReviewState):
     })
 
     return {
-        "is_approved": decision
-    }    
+        "is_approved": decision["approved"],
+        "reviewer_feedback": decision.get("feedback", "")
+    }
