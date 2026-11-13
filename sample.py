@@ -22,3 +22,6 @@ def multiply(num1, num2):
         float or int: The product of num1 and num2.
     """
     return num1 * num2
+
+
+# Ensure there is a newline at the end of the file.
