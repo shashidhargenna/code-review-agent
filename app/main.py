@@ -1,17 +1,27 @@
 import uuid
 
 from dotenv import load_dotenv
+from fastapi import FastAPI
 from langgraph.types import Command
 
 from app.graph.workflow import compile_workflow
+from app.api.routes import router, workflow_app
 
 
 # Load environment variables
 load_dotenv()
 
 
-# Compile LangGraph workflow
-app = compile_workflow()
+# Create FastAPI application
+api = FastAPI(
+    title="AI Code Review Agent",
+    description="Autonomous Code Review and Refactoring Agent using LangGraph",
+    version="1.0.0"
+)
+
+
+# Register API routes
+api.include_router(router)
 
 
 def main():
@@ -19,6 +29,9 @@ def main():
     print("\n===================================")
     print("       AI CODE REVIEW AGENT")
     print("===================================\n")
+
+    # Compile workflow for terminal execution
+    app = compile_workflow()
 
     # Step 1: Get GitHub PR URL
     pr_url = input("Enter GitHub Pull Request URL: ")
@@ -49,14 +62,13 @@ def main():
         config=config
     )
 
-    # Step 5: Handle human approval interrupt
-    if "__interrupt__" in result:
+       # Step 5: Handle human approval and rejection feedback loop
+    while "__interrupt__" in result:
 
         print("\n===================================")
         print("       REFACTORED CODE")
         print("===================================\n")
 
-        # Display generated code
         refactored_code = result.get(
             "refactored_code", {}
         )
@@ -69,40 +81,51 @@ def main():
             print("-----------------------------------")
 
         # Ask for human approval
-        approval = input(
-            "\nDo you approve these changes? (yes/no): "
-        ).strip().lower()
+        while True:
 
-        # Step 6: Resume workflow
+            approval = input(
+                "\nDo you approve these changes? (yes/no): "
+            ).strip().lower()
+
+            if approval in ["yes", "no"]:
+                break
+
+            print("Please enter either yes or no.")
+
+        # Prepare approval decision
         if approval == "yes":
 
-            print("\nApproval received!")
-            print("Applying changes to GitHub...\n")
-
-            result = app.invoke(
-                Command(resume=True),
-                config=config
-            )
+            decision = {
+                "approved": True,
+                "feedback": ""
+            }
 
         else:
 
-            print("\nChanges rejected by reviewer.")
-
-            result = app.invoke(
-                Command(resume=False),
-                config=config
+            feedback = input(
+                "Please provide your feedback: "
             )
 
-    # Step 7: Display final result
+            decision = {
+                "approved": False,
+                "feedback": feedback
+            }
+
+        # Resume the interrupted workflow
+        result = app.invoke(
+            Command(resume=decision),
+            config=config
+        )
+
+        print("\nWorkflow resumed.")
+
+    # Workflow completed
     print("\n===================================")
     print("       WORKFLOW COMPLETED")
     print("===================================\n")
 
     print("Final Workflow State:")
-
     print(result)
-
-    print("\nCode Review Agent execution finished.")
 
 
 if __name__ == "__main__":

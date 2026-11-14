@@ -5,7 +5,80 @@ from types import SimpleNamespace
 from app.graph.nodes import propose_refactor_node
 from app.graph.nodes import apply_changes_node
 
-def test_fetch_pr_node():
+def test_fetch_pr_node(monkeypatch):
+
+    # Simulate GitHub API responses
+    class FakeResponse:
+
+        def __init__(self, data):
+            self.data = data
+
+        def json(self):
+            return self.data
+
+        def raise_for_status(self):
+            pass
+
+    # Simulate GitHub HTTP client
+    class FakeClient:
+
+        def __init__(self, **kwargs):
+            pass
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            pass
+
+        def get(self, url, params=None):
+
+            # Step 1: Return PR information
+            if "/pulls/10" in url and "/files" not in url:
+                return FakeResponse({
+                    "head": {
+                        "sha": "test_commit_sha",
+                        "repo": {
+                            "owner": {
+                                "login": "user"
+                            },
+                            "name": "repo"
+                        }
+                    }
+                })
+
+            # Step 2: Return modified file list
+            if "/pulls/10/files" in url:
+                return FakeResponse([
+                    {
+                        "filename": "sample.py",
+                        "status": "modified"
+                    }
+                ])
+
+            # Step 3: Return actual file content (simulated)
+            if "/contents/sample.py" in url:
+                import base64
+
+                code = "def add(a,b):\n return a+b"
+
+                encoded_code = base64.b64encode(
+                    code.encode("utf-8")
+                ).decode("utf-8")
+
+                return FakeResponse({
+                    "encoding": "base64",
+                    "content": encoded_code
+                })
+
+            raise AssertionError(f"Unexpected URL: {url}")
+
+    monkeypatch.setenv("GITHUB_TOKEN", "fake_token")
+
+    monkeypatch.setattr(
+        "app.graph.nodes.httpx.Client",
+        FakeClient
+    )
 
     state = {
         "pr_url": "https://github.com/user/repo/pull/10",
@@ -19,11 +92,11 @@ def test_fetch_pr_node():
 
     result = fetch_pr_node(state)
 
-    assert "main.py" in result["code_contents"]
+    # Verify actual filename was retrieved
+    assert "sample.py" in result["code_contents"]
 
-    assert "add" in result["code_contents"]["main.py"]
-
-    print(result)
+    # Verify decoded Python code
+    assert "def add(a,b):" in result["code_contents"]["sample.py"]
     
 def test_lint_code_node():
 
@@ -220,3 +293,49 @@ def test_apply_changes_without_approval():
 
     with pytest.raises(PermissionError):
         apply_changes_node(state)
+
+
+
+def test_lint_code_node_continues_after_syntax_error(monkeypatch):
+
+    calls = []
+
+    def fake_linter_tool(code_string):
+        calls.append(code_string)
+
+        if "def broken(:" in code_string:
+            return "E999 SyntaxError: invalid syntax"
+
+        if "def add(a,b):" in code_string:
+            return "E231 missing whitespace after comma"
+
+        return "No linting errors found."
+
+    monkeypatch.setattr(
+    "app.graph.nodes.run_linter_tool",
+    SimpleNamespace(
+        invoke=lambda payload: fake_linter_tool(payload["code_string"])
+    )
+) 
+
+    state = {
+        "code_contents": {
+            "broken.py": "def broken(:\n    pass\n",
+            "style_issue.py": "def add(a,b):\n    return a+b\n",
+            "clean.py": "def add(a, b):\n    return a + b\n"
+        }
+    }
+
+    result = lint_code_node(state)
+
+    # All three files should be checked.
+    assert len(calls) == 3
+
+    # Both problematic files should be reported.
+    assert [item["file"] for item in result["lint_errors"]] == [
+        "broken.py",
+        "style_issue.py"
+    ]
+
+    assert "E999" in result["lint_errors"][0]["errors"]
+    assert "E231" in result["lint_errors"][1]["errors"]        

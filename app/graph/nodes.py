@@ -1,6 +1,9 @@
 import os
 import re
 import httpx
+import base64
+
+from urllib.parse import quote
 from dotenv import load_dotenv
 from langchain_openai import ChatOpenAI
 from langchain_core.messages import SystemMessage, HumanMessage
@@ -10,45 +13,130 @@ from langgraph.types import interrupt
 
 load_dotenv()
 
-def fetch_pr_node(state: ReviewState):
 
+def fetch_pr_node(state: ReviewState):
     """
-    Fetches modified files from a GitHub Pull Request.
-    Currently using mock data for development.
+    Fetches modified Python files from a GitHub Pull Request.
+    Demo mode: Processes only sample.py.
     """
 
     print("Fetching Pull Request...")
 
-    # Mock GitHub PR code
-    mock_code = {
-        "main.py": """
-def add(a,b):
- return a+b
+    token = os.getenv("GITHUB_TOKEN")
 
+    if not token:
+        raise ValueError("GitHub token is missing.")
 
-def multiply(a,b):
-    return a*b
-"""
+    pr_url = state["pr_url"]
+
+    match = re.fullmatch(
+        r"https://github\.com/([^/]+)/([^/]+)/pull/(\d+)/?",
+        pr_url
+    )
+
+    if not match:
+        raise ValueError("Invalid GitHub Pull Request URL.")
+
+    owner, repo, pr_number = match.groups()
+
+    headers = {
+        "Authorization": f"Bearer {token}",
+        "Accept": "application/vnd.github+json",
+        "X-GitHub-Api-Version": "2022-11-28"
     }
+
+    code_contents = {}
+
+    with httpx.Client(headers=headers, timeout=30) as client:
+
+        # Step 1: Retrieve Pull Request information
+        pr_response = client.get(
+            f"https://api.github.com/repos/{owner}/{repo}/pulls/{pr_number}"
+        )
+
+        pr_response.raise_for_status()
+
+        pr_data = pr_response.json()
+
+        head = pr_data["head"]
+        head_sha = head["sha"]
+        head_repo = head["repo"]
+
+        if head_repo is None:
+            raise ValueError("PR source repository is unavailable.")
+
+        source_owner = head_repo["owner"]["login"]
+        source_repo = head_repo["name"]
+
+        # Step 2: Retrieve the list of changed files
+        files_response = client.get(
+            f"https://api.github.com/repos/{owner}/{repo}/pulls/{pr_number}/files"
+        )
+
+        files_response.raise_for_status()
+
+        changed_files = files_response.json()
+
+        # Step 3: Retrieve the actual contents of each changed file
+        for file in changed_files:
+
+            filename = file["filename"]
+
+            # Demo: Process only sample.py
+            if filename != "sample.py":
+                continue
+
+            # Skip deleted files
+            if file["status"] == "removed":
+                continue
+
+            # Skip non-Python files
+            if not filename.endswith(".py"):
+                continue
+
+            encoded_path = quote(filename, safe="/")
+
+            content_response = client.get(
+                f"https://api.github.com/repos/{source_owner}/{source_repo}/contents/{encoded_path}",
+                params={"ref": head_sha}
+            )
+
+            content_response.raise_for_status()
+
+            content_data = content_response.json()
+
+            if content_data.get("encoding") != "base64":
+                raise ValueError(
+                    f"Unsupported content encoding for {filename}"
+                )
+
+            decoded_content = base64.b64decode(
+                content_data["content"]
+            ).decode("utf-8")
+
+            code_contents[filename] = decoded_content
+
+    if not code_contents:
+        raise ValueError("No sample.py file found in the Pull Request.")
+
+    print("Successfully fetched files:", list(code_contents.keys()))
 
     return {
-        "code_contents": mock_code
+        "code_contents": code_contents
     }
-    
-def lint_code_node(state: ReviewState):
 
+
+def lint_code_node(state: ReviewState):
     """
-    Analyzes all Python files using the linter tool.
+    Analyzes Python files using the linter tool.
     """
 
     print("Running code analysis...")
 
     all_errors = []
 
-    # Get original code from shared state
     code_files = state["code_contents"]
 
-    # Analyze each Python file
     for filename, code in code_files.items():
 
         if filename.endswith(".py"):
@@ -68,8 +156,11 @@ def lint_code_node(state: ReviewState):
         "lint_errors": all_errors
     }
 
- 
+
 def propose_refactor_node(state: ReviewState):
+    """
+    Generates improved code using the LLM.
+    """
 
     print("Generating refactored code...")
 
@@ -140,12 +231,10 @@ Generate the refactored code.
     return {
         "refactored_code": refactored_files,
         "history": history
-    }  
-    
-      
-    
-def apply_changes_node(state: ReviewState):
+    }
 
+
+def apply_changes_node(state: ReviewState):
     """
     Applies approved refactored code to the GitHub PR branch.
     """
@@ -270,8 +359,6 @@ def apply_changes_node(state: ReviewState):
         commit_sha = new_commit.json()["sha"]
 
         # Step 6: Update the PR source branch
-        from urllib.parse import quote
-
         encoded_branch = quote(branch, safe="")
 
         update_response = client.patch(
@@ -301,6 +388,9 @@ def apply_changes_node(state: ReviewState):
 
 
 def human_approval_node(state: ReviewState):
+    """
+    Pauses the workflow for human approval or rejection.
+    """
 
     decision = interrupt({
         "message": "Do you approve these refactored changes?",
@@ -308,5 +398,6 @@ def human_approval_node(state: ReviewState):
     })
 
     return {
-        "is_approved": decision
-    }    
+        "is_approved": decision["approved"],
+        "reviewer_feedback": decision.get("feedback", "")
+    }

@@ -20,7 +20,7 @@ def route_after_approval(state: ReviewState):
     if state["is_approved"]:
         return "apply_changes"
 
-    return END
+    return "propose_refactor"
 
 
 def build_workflow():
@@ -40,16 +40,17 @@ def build_workflow():
     workflow.add_edge("lint_code", "propose_refactor")
     workflow.add_edge("propose_refactor", "human_approval")
 
-    # Conditional routing
+    # Conditional routing after human approval
     workflow.add_conditional_edges(
         "human_approval",
         route_after_approval,
         {
             "apply_changes": "apply_changes",
-            END: END
+            "propose_refactor": "propose_refactor"
         }
     )
 
+    # Finish after applying approved changes
     workflow.add_edge("apply_changes", END)
 
     return workflow
