@@ -1,27 +1,24 @@
-def add(num1, num2):
+def add(first_number, second_number):
     """Return the sum of two numbers.
 
     Args:
-        num1 (float or int): The first number.
-        num2 (float or int): The second number.
+        first_number (float or int): The first number.
+        second_number (float or int): The second number.
 
     Returns:
-        float or int: The sum of num1 and num2.
+        float or int: The sum of first_number and second_number.
     """
-    return num1 + num2
+    return first_number + second_number
 
 
-def multiply(num1, num2):
+def multiply(first_number, second_number):
     """Return the product of two numbers.
 
     Args:
-        num1 (float or int): The first number.
-        num2 (float or int): The second number.
+        first_number (float or int): The first number.
+        second_number (float or int): The second number.
 
     Returns:
-        float or int: The product of num1 and num2.
+        float or int: The product of first_number and second_number.
     """
-    return num1 * num2
-
-
-# Ensure there is a newline at the end of the file.'''
+    return first_number * second_number
