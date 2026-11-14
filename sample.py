@@ -1,6 +1,3 @@
-import math
-
-
 def calculate_bill(price, quantity):
     total = price * quantity
     discount = total * 0.10
