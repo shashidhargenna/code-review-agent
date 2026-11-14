@@ -1,11 +1,11 @@
 import math
 
+
 def calculate_bill(price, quantity):
     total = price * quantity
     discount = total * 0.10
-    final = total - discount
-    unused_variable = 100
-    return final
+    final_amount = total - discount
+    return final_amount
 
 
 def calculate_tax(amount):
