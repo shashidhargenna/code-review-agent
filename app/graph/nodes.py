@@ -2,6 +2,7 @@ import os
 import re
 import httpx
 import base64
+
 from urllib.parse import quote
 from dotenv import load_dotenv
 from langchain_openai import ChatOpenAI
@@ -12,9 +13,11 @@ from langgraph.types import interrupt
 
 load_dotenv()
 
+
 def fetch_pr_node(state: ReviewState):
     """
-    Fetches actual modified Python files from a GitHub Pull Request.
+    Fetches modified Python files from a GitHub Pull Request.
+    Demo mode: Processes only sample.py.
     """
 
     print("Fetching Pull Request...")
@@ -79,10 +82,15 @@ def fetch_pr_node(state: ReviewState):
 
             filename = file["filename"]
 
-            # Skip deleted files and non-Python files
+            # Demo: Process only sample.py
+            if filename != "sample.py":
+                continue
+
+            # Skip deleted files
             if file["status"] == "removed":
                 continue
 
+            # Skip non-Python files
             if not filename.endswith(".py"):
                 continue
 
@@ -109,28 +117,26 @@ def fetch_pr_node(state: ReviewState):
             code_contents[filename] = decoded_content
 
     if not code_contents:
-        raise ValueError("No Python files found in the Pull Request.")
+        raise ValueError("No sample.py file found in the Pull Request.")
 
     print("Successfully fetched files:", list(code_contents.keys()))
 
     return {
         "code_contents": code_contents
     }
-    
-def lint_code_node(state: ReviewState):
 
+
+def lint_code_node(state: ReviewState):
     """
-    Analyzes all Python files using the linter tool.
+    Analyzes Python files using the linter tool.
     """
 
     print("Running code analysis...")
 
     all_errors = []
 
-    # Get original code from shared state
     code_files = state["code_contents"]
 
-    # Analyze each Python file
     for filename, code in code_files.items():
 
         if filename.endswith(".py"):
@@ -150,8 +156,11 @@ def lint_code_node(state: ReviewState):
         "lint_errors": all_errors
     }
 
- 
+
 def propose_refactor_node(state: ReviewState):
+    """
+    Generates improved code using the LLM.
+    """
 
     print("Generating refactored code...")
 
@@ -222,12 +231,10 @@ Generate the refactored code.
     return {
         "refactored_code": refactored_files,
         "history": history
-    }  
-    
-      
-    
-def apply_changes_node(state: ReviewState):
+    }
 
+
+def apply_changes_node(state: ReviewState):
     """
     Applies approved refactored code to the GitHub PR branch.
     """
@@ -352,8 +359,6 @@ def apply_changes_node(state: ReviewState):
         commit_sha = new_commit.json()["sha"]
 
         # Step 6: Update the PR source branch
-        from urllib.parse import quote
-
         encoded_branch = quote(branch, safe="")
 
         update_response = client.patch(
@@ -383,6 +388,9 @@ def apply_changes_node(state: ReviewState):
 
 
 def human_approval_node(state: ReviewState):
+    """
+    Pauses the workflow for human approval or rejection.
+    """
 
     decision = interrupt({
         "message": "Do you approve these refactored changes?",
