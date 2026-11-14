@@ -1,24 +1,17 @@
-def add(first_num, second_num):
-    """Return the sum of two numbers.
+import math
 
-    Args:
-        first_num (float or int): The first number.
-        second_num (float or int): The second number.
-
-    Returns:
-        float or int: The sum of first_num and second_num.
-    """
-    return first_num + second_num
+def calculate_bill(price, quantity):
+    total = price * quantity
+    discount = total * 0.10
+    final = total - discount
+    unused_variable = 100
+    return final
 
 
-def multiply(first_num, second_num):
-    """Return the product of two numbers.
+def calculate_tax(amount):
+    tax = amount * 0.18
+    return amount + tax
 
-    Args:
-        first_num (float or int): The first number.
-        second_num (float or int): The second number.
 
-    Returns:
-        float or int: The product of first_num and second_num.
-    """
-    return first_num * second_num
+print(calculate_bill(2, 500))
+print(calculate_tax(900))
